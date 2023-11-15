@@ -7,10 +7,11 @@ const app = express();
 
 // Enable CORS for all routes
 app.use(cors({
-    origin: 'https://frontend-readdream.vercel.app',
+    origin: '*',
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
 }));
+
 
 // Body parser middleware
 app.use(express.json());
