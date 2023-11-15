@@ -2,37 +2,25 @@ const express = require('express');
 const routes = require('./routes/routes');
 const cors = require('cors');
 const path = require('path');
+const bodyParser = require('body-parser');
 
 const app = express();
 
-// Middleware untuk mengizinkan CORS
 app.use(cors());
-
-// Middleware untuk mengizinkan penguraian body dari JSON
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Middleware untuk mengizinkan penguraian body dari URL-encoded
-app.use(express.urlencoded({ extended: true }));
-
-// Endpoint untuk mengirim file thumbnail
 app.get('/thumbnail/:filename', (req, res) => {
     const { filename } = req.params;
     res.sendFile(path.join(__dirname, 'public', 'thumbnail', filename));
-});
+  });
 
-// Middleware CORS khusus untuk endpoint /server/apiReaddream
-app.use(cors({
-    origin: 'https://frontend-readdream.vercel.app',
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    credentials: true,
-    optionsSuccessStatus: 204,
-    allowedHeaders: 'Content-Type, Authorization',
-}));
+app.use('/public', express.static(path.join(__dirname, 'public')));
 
-// Endpoint untuk API Anda
 app.use('/server/apiReaddream', routes);
 
-// Middleware untuk menangani 404 Not Found
 app.use((req, res, next) => {
     res.status(404).send({
         status: "failed",
@@ -40,7 +28,6 @@ app.use((req, res, next) => {
     });
 });
 
-// Middleware untuk menangani kesalahan server
 app.use((err, req, res, next) => {
     console.error(err.stack);
     res.status(500).send({
@@ -49,6 +36,4 @@ app.use((err, req, res, next) => {
     });
 });
 
-const port = 3000;
-
-app.listen(port, () => console.log(`Server berjalan di http://localhost:${port}`));
+app.listen(port = 30000, () => console.log(`Server: http://localhost:${port}`));
