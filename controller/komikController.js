@@ -387,11 +387,14 @@ const addGambar = async (req, res) => {
             const namaGambar = req.file.filename;
             const gambarId = new ObjectId(); // Membuat _id baru untuk gambar
 
-            chapter.daftarGambar.push({
+            // Memastikan objek gambar memiliki properti _id
+            const gambarObj = {
                 _id: gambarId,
                 nama: namaGambar,
                 nomorGambar: chapter.daftarGambar.length + 1
-            });
+            };
+
+            chapter.daftarGambar.push(gambarObj);
 
             const result = await db.collection('komik').updateOne(
                 { _id: new ObjectId(komikId), 'chapter._id': new ObjectId(chapterId) },
@@ -409,6 +412,7 @@ const addGambar = async (req, res) => {
         res.status(500).send("Gagal menambahkan gambar");
     }
 };
+
 
 const deleteGambar = async (req, res) => {
     const komikId = req.params.id;
