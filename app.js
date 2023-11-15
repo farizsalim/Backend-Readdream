@@ -21,12 +21,13 @@ app.get('/thumbnail/:filename', (req, res) => {
 });
 
 // Middleware CORS khusus untuk endpoint /server/apiReaddream
-app.use('/server/apiReaddream', (req, res, next) => {
-    res.header('Access-Control-Allow-Origin', 'https://frontend-readdream.vercel.app/');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
-    next();
-});
+app.use(cors({
+    origin: 'https://frontend-readdream.vercel.app',
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    credentials: true,
+    optionsSuccessStatus: 204,
+    allowedHeaders: 'Content-Type, Authorization',
+}));
 
 // Endpoint untuk API Anda
 app.use('/server/apiReaddream', routes);
