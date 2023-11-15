@@ -2,16 +2,19 @@ const express = require('express');
 const routes = require('./routes/routes');
 const cors = require('cors');
 const path = require('path');
-const bodyParser = require('body-parser');
 
 const app = express();
 
 // Enable CORS for all routes
-app.use(cors());
+app.use(cors({
+    origin: 'https://frontend-readdream.vercel.app', // Ganti dengan asal yang sesuai dengan kebutuhan Anda
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    credentials: true,
+}));
 
 // Body parser middleware
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Serve static files
 app.get('/thumbnail/:filename', (req, res) => {
@@ -26,7 +29,7 @@ app.use('/server/apiReaddream', routes);
 
 // 404 Not Found middleware
 app.use((req, res, next) => {
-    res.status(404).send({
+    res.status(404).json({
         status: 'failed',
         message: req.originalUrl + ' not found',
     });
@@ -35,9 +38,10 @@ app.use((req, res, next) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
     console.error(err.stack);
-    res.status(500).send({
+    res.status(500).json({
         status: 'error',
         message: 'Internal Server Error',
+        error: err.message,
     });
 });
 
