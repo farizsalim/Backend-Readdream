@@ -7,7 +7,7 @@ const app = express();
 
 // Enable CORS for all routes
 app.use(cors({
-    origin: 'https://frontend-readdream.vercel.app', // Ganti dengan asal yang sesuai dengan kebutuhan Anda
+    origin: 'https://frontend-readdream.vercel.app',
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
 }));

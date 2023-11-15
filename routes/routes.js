@@ -1,9 +1,7 @@
 const router = require('express').Router();
 const komikController = require('../controller/komikController');
 const userController = require('../controller/userController');
-const cors = require('cors')
 
-router.use(cors());
 // Routes for Komik
 router.get('/komik', komikController.getAllKomik);
 router.post('/komik', komikController.addKomik);
