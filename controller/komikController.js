@@ -1,20 +1,17 @@
-const { ObjectId } = require('bson')
+const crypto = require('crypto');
+const { ObjectId } = require('bson');
 const db = require('../config/mongodb');
+const { drive } = require('../config/googleapi');
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const streamifier = require('streamifier');
 
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, path.join(__dirname, '../public/thumbnail')); 
-    },
-    filename: function (req, file, cb) {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, file.fieldname + '-' + uniqueSuffix + '.' + file.mimetype.split('/')[1]);
-    }
-});
-
+const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
+
+const bufferToStream = (buffer) => {
+    const stream = streamifier.createReadStream(buffer);
+    return stream;
+};
 
 const getAllKomik = (req, res) => {
     db.collection('komik').find().toArray()
@@ -22,148 +19,32 @@ const getAllKomik = (req, res) => {
         .catch(error => res.status(500).send(error));
 };
 
-const addKomik = (req, res) => {
-    upload.single('thumbnail')(req, res, function (err) {
-      if (err instanceof multer.MulterError) {
-        return res.status(500).send(err);
-      } else if (err) {
-        return res.status(500).send(err);
-      }
-  
-      const { judul, author, deskripsi, jenis_komik, genre, status, uploader, chapter, rating } = req.body;
-  
-      if (!judul || !author || !deskripsi || !jenis_komik || !status || !uploader) {
-        return res.status(400).send("Data tidak lengkap");
-      }
-  
-      // Ubah genre menjadi array
-      const genreArray = genre.split(',').map(g => g.trim());
-  
-      const newComic = {
-        _id: new ObjectId(),
-        judul,
-        author,
-        deskripsi,
-        jenis_komik,
-        genre: genreArray,
-        status,
-        uploader,
-        chapter: [],
-        rating,
-        created_at: new Date(),
-        thumbnail: req.file.filename
-      };
-  
-      db.collection('komik').insertOne(newComic)
-        .then(result => res.send(result))
-        .catch(error => res.status(500).send(error));
-    });
-  };
 
+const addKomik = async (req, res) => {
+    try {
+        const upload = multer(/* konfigurasi multer Anda */);
 
-const getKomikById = (req, res) => {
-    const komikId = req.params.id;
-
-    if (!komikId) {
-        return res.status(400).send("ID komik tidak valid");
-    }
-
-    db.collection('komik').findOne({ _id: new ObjectId(komikId) })
-        .then(result => {
-            if (!result) {
-                return res.status(404).send("Komik tidak ditemukan");
-            }
-            res.send(result);
-        })
-        .catch(error => res.status(500).send(error));
-};
-
-
-const deleteKomik = (req, res) => {
-    const komikId = req.params.id;
-
-    if (!komikId) {
-        return res.status(400).send("ID komik tidak valid");
-    }
-
-    db.collection('komik').findOne({ _id: new ObjectId(komikId) })
-        .then(async (result) => {
-            if (!result) {
-                return res.status(404).send("Komik tidak ditemukan");
+        upload.array('thumbnail', 1)(req, res, async (err) => {
+            if (err instanceof multer.MulterError) {
+                return res.status(400).json({ error: 'Terjadi kesalahan pada upload file' });
+            } else if (err) {
+                return res.status(500).json({ error: 'Terjadi kesalahan pada server' });
             }
 
-            const thumbnailFileName = result.thumbnail;
+            console.log('Request Body:', req.body);
+            console.log('Request Files:', req.files);
 
-            if (!thumbnailFileName) {
-                return res.status(500).send("File thumbnail tidak ditemukan dalam data komik");
+            if (!req.files || req.files.length === 0) {
+                return res.status(400).json({ error: 'File tidak ditemukan' });
             }
 
-            const thumbnailPath = path.join(__dirname, '../public/thumbnail/', thumbnailFileName);
-
-            // Hapus file thumbnail
-            fs.unlink(thumbnailPath, (err) => {
-                if (err) {
-                    console.error("Error deleting thumbnail file:", err);
-                    return res.status(500).send("Gagal menghapus file thumbnail");
-                }
-
-                console.log("File thumbnail berhasil dihapus:", thumbnailFileName);
-            });
-
-            // Hapus file gambar chapter
-            const chapters = result.chapter || [];
-            chapters.forEach(async (chapter) => {
-                if (chapter.daftarGambar && chapter.daftarGambar.length > 0) {
-                    chapter.daftarGambar.forEach((gambar) => {
-                        const gambarPath = path.join(__dirname, '../public/thumbnail/', gambar.nama);
-                        fs.unlink(gambarPath, (gambarErr) => {
-                            if (gambarErr) {
-                                console.error("Error deleting chapter image file:", gambarErr);
-                            }
-                            console.log("Chapter image file deleted:", gambar.nama);
-                        });
-                    });
-                }
-            });
-
-            // Hapus komik dari database
-            const deleteResult = await db.collection('komik').deleteOne({ _id: new ObjectId(komikId) });
-
-            if (deleteResult.deletedCount === 0) {
-                return res.status(404).send("Komik tidak ditemukan saat penghapusan");
+            if (!req.files[0].originalname || !req.files[0].buffer) {
+                return res.status(400).json({ error: 'File tidak ditemukan' });
             }
 
-            res.send("Komik berhasil dihapus");
-        })
-        .catch(error => {
-            console.error("Error deleting komik:", error);
-            res.status(500).send("Gagal menghapus komik");
-        });
-};
+            const { judul, author, deskripsi, jenis_komik, genre, status, uploader, rating } = req.body;
 
-
-const updateKomik = (req, res) => {
-    const komikId = req.params.id;
-
-    if (!komikId) {
-        return res.status(400).send("ID komik tidak valid");
-    }
-
-    upload.single('thumbnail')(req, res, async function (err) {
-        if (err instanceof multer.MulterError) {
-            return res.status(500).send(err);
-        } else if (err) {
-            return res.status(500).send(err);
-        }
-
-        try {
-            const { judul, author, deskripsi, jenis_komik, genre, status, uploader, chapter, rating } = req.body;
-
-            if (!judul || !author || !deskripsi || !jenis_komik || !genre || !status || !uploader) {
-                return res.status(400).send("Data tidak lengkap");
-            }
-
-            const updatedComic = {
+            console.log('Parsed Body:', {
                 judul,
                 author,
                 deskripsi,
@@ -171,388 +52,223 @@ const updateKomik = (req, res) => {
                 genre,
                 status,
                 uploader,
-                chapter,
                 rating,
-                updated_at: new Date(),
-            };
-
-            if (req.file) {
-                updatedComic.thumbnail = req.file.filename;
-
-                // Hapus thumbnail lama jika ada
-                const oldKomik = await db.collection('komik').findOne({ _id: new ObjectId(komikId) });
-                const oldThumbnailFileName = oldKomik.thumbnail;
-
-                if (oldThumbnailFileName) {
-                    const oldThumbnailPath = path.join(__dirname, '../public/thumbnail/', oldThumbnailFileName);
-                    fs.unlink(oldThumbnailPath, (unlinkErr) => {
-                        if (unlinkErr) {
-                            console.error("Error deleting old thumbnail file:", unlinkErr);
-                        }
-                        console.log("Old thumbnail file deleted:", oldThumbnailFileName);
-                    });
-                }
-            }
-
-            const result = await db.collection('komik').updateOne(
-                { _id: new ObjectId(komikId) },
-                { $set: updatedComic }
-            );
-
-            if (result.modifiedCount === 0) {
-                return res.status(404).send("Komik tidak ditemukan saat pembaruan");
-            }
-
-            res.send("Komik berhasil diperbarui");
-        } catch (error) {
-            console.error("Error updating komik:", error);
-            res.status(500).send("Gagal memperbarui komik");
-        }
-    });
-};
-
-const addChapter = async (req, res) => {
-    const komikId = req.params.id;
-  
-    if (!komikId) {
-      return res.status(400).send("ID komik tidak valid");
-    }
-  
-    try {
-      const { judulChapter, nomorChapter, daftarGambar } = req.body;
-  
-      if (!judulChapter || !nomorChapter) {
-        return res.status(400).send("Data chapter tidak lengkap");
-      }
-  
-      const newChapter = {
-        _id: new ObjectId(),
-        judulChapter,
-        nomorChapter,
-        daftarGambar,
-        created_at: new Date(),
-      };
-  
-      // Periksa apakah bidang 'chapter' sudah ada sebagai array
-      const komik = await db.collection('komik').findOne({ _id: new ObjectId(komikId) });
-      
-      if (!komik.chapter || !Array.isArray(komik.chapter)) {
-        // Jika bidang 'chapter' belum ada, inisialisasikan sebagai array kosong
-        await db.collection('komik').updateOne(
-          { _id: new ObjectId(komikId) },
-          { $set: { chapter: [] } }
-        );
-      }
-  
-      // Tambahkan chapter baru
-      const result = await db.collection('komik').updateOne(
-        { _id: new ObjectId(komikId) },
-        { $push: { chapter: newChapter } }
-      );
-  
-      if (result.modifiedCount > 0) {
-        res.send("Chapter berhasil ditambahkan");
-      } else {
-        return res.status(404).send("Komik tidak ditemukan saat menambah chapter");
-      }
-    } catch (error) {
-      console.error("Error adding chapter:", error);
-      res.status(500).send("Gagal menambahkan chapter");
-    }
-  };
-
-
-  const getChapterById = async (req, res) => {
-    const komikId = req.params.id;
-    const chapterId = req.params.chapterId;
-
-    if (!komikId) {
-        return res.status(400).send("ID komik tidak valid");
-    }
-    if(!chapterId){
-        return res.status(400).send("ID chapter tidak valid");
-    }
-
-    try {
-        const komik = await db.collection('komik').findOne({ _id: new ObjectId(komikId) });
-
-        if (!komik) {
-            return res.status(404).send("Komik tidak ditemukan");
-        }
-
-        const chapter = komik.chapter.find(chap => chap._id.toString() === chapterId);
-
-        if (!chapter) {
-            return res.status(404).send("Chapter tidak ditemukan");
-        }
-
-        res.send(chapter);
-    } catch (error) {
-        console.error("Error fetching chapter by ID:", error);
-        res.status(500).send("Gagal mengambil chapter");
-    }
-};
-
-const deleteChapter = async (req, res) => {
-    const komikId = req.params.id;
-    const chapterId = req.params.chapterId;
-
-    if (!komikId || !chapterId) {
-        return res.status(400).send("ID komik atau ID chapter tidak valid");
-    }
-
-    try {
-        const komik = await db.collection('komik').findOne({ _id: new ObjectId(komikId) });
-
-        if (!komik) {
-            return res.status(404).send("Komik tidak ditemukan");
-        }
-
-        const chapterIndex = komik.chapter.findIndex(chap => chap._id.toString() === chapterId);
-
-        if (chapterIndex === -1) {
-            return res.status(404).send("Chapter tidak ditemukan");
-        }
-
-        const thumbnailFileName = komik.chapter[chapterIndex].thumbnail;
-
-        if (thumbnailFileName) {
-            const thumbnailPath = path.join(__dirname, '../public/thumbnail/', thumbnailFileName);
-            await fs.promises.unlink(thumbnailPath); // Use fs.promises.unlink for promise-based file deletion
-            console.log("Chapter thumbnail file deleted:", thumbnailFileName);
-        }
-
-        // Hapus file gambar pada setiap chapter
-        const chapter = komik.chapter[chapterIndex];
-        if (chapter.daftarGambar && chapter.daftarGambar.length > 0) {
-            chapter.daftarGambar.forEach(async (gambar) => {
-                if (gambar.nama) {
-                    const gambarPath = path.join(__dirname, '../public/thumbnail/', gambar.nama);
-                    await fs.promises.unlink(gambarPath); // Use fs.promises.unlink for promise-based file deletion
-                    console.log("Chapter image file deleted:", gambar.nama);
-                }
             });
-        }
 
-        komik.chapter.splice(chapterIndex, 1);
+            const genreArray = genre ? genre.split(',').map((genreItem) => genreItem.trim()) : [];
 
-        const result = await db.collection('komik').updateOne(
-            { _id: new ObjectId(komikId) },
-            { $set: { chapter: komik.chapter } }
-        );
-
-        if (result.modifiedCount === 0) {
-            return res.status(404).send("Komik tidak ditemukan saat menghapus chapter");
-        }
-
-        res.send("Chapter berhasil dihapus");
-    } catch (error) {
-        console.error("Error deleting chapter:", error);
-        res.status(500).send("Gagal menghapus chapter");
-    }
-};
-
-const addGambar = async (req, res) => {
-    const komikId = req.params.id;
-    const chapterId = req.params.chapterId;
-
-    if (!komikId || !chapterId) {
-        return res.status(400).send("ID komik atau ID chapter tidak valid");
-    }
-
-    try {
-        const komik = await db.collection('komik').findOne({ _id: new ObjectId(komikId) });
-
-        if (!komik) {
-            return res.status(404).send("Komik tidak ditemukan");
-        }
-
-        const chapter = komik.chapter.find(chap => chap._id.toString() === chapterId);
-
-        if (!chapter) {
-            return res.status(404).send("Chapter tidak ditemukan");
-        }
-
-        if (!chapter.daftarGambar) {
-            chapter.daftarGambar = [];
-        }
-
-        upload.single('gambar')(req, res, async function (err) {
-            if (err instanceof multer.MulterError) {
-                return res.status(500).send(err);
-            } else if (err) {
-                return res.status(500).send(err);
-            }
-
-            const namaGambar = req.file.filename;
-            const gambarId = new ObjectId(); // Membuat _id baru untuk gambar
-
-            // Memastikan objek gambar memiliki properti _id
-            const gambarObj = {
-                _id: gambarId,
-                nama: namaGambar,
-                nomorGambar: chapter.daftarGambar.length + 1
+            const newKomik = {
+                _id: new ObjectId(),
+                judul,
+                author,
+                deskripsi,
+                jenis_komik,
+                genre: genreArray,
+                status,
+                uploader,
+                chapter: [],
+                rating,
+                created_at: new Date(),
             };
 
-            chapter.daftarGambar.push(gambarObj);
+            console.log('New Komik:', newKomik);
 
-            const result = await db.collection('komik').updateOne(
-                { _id: new ObjectId(komikId), 'chapter._id': new ObjectId(chapterId) },
-                { $set: { 'chapter.$.daftarGambar': chapter.daftarGambar } }
+            const result = await db.collection('komik').insertOne(newKomik);
+
+            console.log('Result after MongoDB insertion:', result);
+
+            const fileNameHash = crypto.createHash('md5').update(req.files[0].originalname).digest('hex');
+
+            const { data } = await drive.files.create({
+                requestBody: {
+                    name: fileNameHash + '.' + req.files[0].originalname.split('.').pop(),
+                    mimeType: req.files[0].mimetype,
+                    parents: ['1d4_5nkRy_G4x7e4trYgG46VxU1TIBUX4'],
+                },
+                media: {
+                    mimeType: req.files[0].mimetype,
+                    body: bufferToStream(req.files[0].buffer),
+                },
+            });
+
+            console.log('Thumbnail Google Drive Response:', data);
+
+            // Set permissions for the file (make it public)
+            const fileId = data.id;
+            await drive.permissions.create({
+                fileId: fileId,
+                requestBody: {
+                    role: 'reader', // Ubah ke 'writer' jika Anda ingin orang lain dapat mengedit
+                    type: 'anyone',
+                },
+            });
+
+            // Update the MongoDB entry with the public link
+            await db.collection('komik').updateOne(
+                { _id: result.insertedId },
+                { $set: { thumbnail: `https://drive.google.com/uc?export=view&id=${data.id}`,
+                          thumbnailID:  data.id} }
             );
 
-            if (result.modifiedCount === 0) {
-                return res.status(404).send("Chapter tidak ditemukan saat menambah gambar");
-            }
-
-            res.send("Gambar berhasil ditambahkan");
+            res.status(201).json({
+                message: 'Komik berhasil ditambahkan',
+                thumbnailGoogleDriveId: data.id,
+            });
         });
     } catch (error) {
-        console.error("Error adding gambar:", error);
-        res.status(500).send("Gagal menambahkan gambar");
+        console.error('Error saat menambahkan komik:', error);
+        res.status(500).json({ error: 'Terjadi kesalahan saat menambahkan komik' });
     }
 };
 
 
-const deleteGambar = async (req, res) => {
-    const komikId = req.params.id;
-    const chapterId = req.params.chapterId;
-    const gambarId = req.params.gambarId;
-
-    if (!komikId || !chapterId || !gambarId) {
-        return res.status(400).send("ID komik, ID chapter, atau ID gambar tidak valid");
-    }
-
+const deleteKomik = async (req, res) => {
     try {
-        const komik = await db.collection('komik').findOne({ _id: new ObjectId(komikId) });
+        const { id } = req.params; // Ambil ID komik dari parameter URL
+        const komik = await db.collection('komik').findOne({ _id: new ObjectId(id) });
 
         if (!komik) {
-            return res.status(404).send("Komik tidak ditemukan");
+            return res.status(404).json({ error: 'Komik tidak ditemukan' });
         }
 
-        const chapter = komik.chapter.find(chap => chap._id.toString() === chapterId);
+        
 
-        if (!chapter) {
-            return res.status(404).send("Chapter tidak ditemukan");
-        }
-
-        const gambarIndex = chapter.daftarGambar.findIndex(gambar => gambar._id.toString() === gambarId);
-
-        if (gambarIndex === -1) {
-            return res.status(404).send("Gambar tidak ditemukan");
-        }
-
-        const thumbnailFileName = chapter.daftarGambar[gambarIndex].nama;
-
-        if (thumbnailFileName) {
-            const thumbnailPath = path.join(__dirname, '../public/thumbnail/', thumbnailFileName);
-            fs.unlink(thumbnailPath, (unlinkErr) => {
-                if (unlinkErr) {
-                    console.error("Error deleting gambar file:", unlinkErr);
+        // Hapus komik dari MongoDB
+        const result = await db.collection('komik').deleteOne({ _id: new ObjectId(id) });
+        if (result.deletedCount === 1) {
+            // Iterate through chapters and delete images from Google Drive
+            for (const chapter of komik.chapter) {
+                for (const gambar of chapter.daftarGambar) {
+                    await drive.files.delete({ fileId: gambar.idGambar });
                 }
-                console.log("Gambar file deleted:", thumbnailFileName);
-            });
+            }
+            if (komik.thumbnailID) {
+                await drive.files.delete({ fileId: komik.thumbnailID });
+            }
+            return res.json({ message: 'Komik berhasil dihapus' });
+        } else {
+            return res.status(500).json({ error: 'Terjadi kesalahan saat menghapus komik' });
         }
 
-        chapter.daftarGambar.splice(gambarIndex, 1);
 
-        const result = await db.collection('komik').updateOne(
-            { _id: new ObjectId(komikId), 'chapter._id': new ObjectId(chapterId) },
-            { $set: { 'chapter.$.daftarGambar': chapter.daftarGambar } }
-        );
+        // Hapus file dari Google Drive berdasarkan thumbnailID
+        
 
-        if (result.modifiedCount === 0) {
-            return res.status(404).send("Chapter atau gambar tidak ditemukan saat menghapus gambar");
-        }
-
-        res.send("Gambar berhasil dihapus");
     } catch (error) {
-        console.error("Error deleting gambar:", error);
-        res.status(500).send("Gagal menghapus gambar");
+        console.error('Error saat menghapus komik:', error);
+        res.status(500).json({ error: 'Terjadi kesalahan saat menghapus komik' });
     }
 };
 
-const updateGambar = async (req, res) => {
-    const komikId = req.params.id;
-    const chapterId = req.params.chapterId;
-    const gambarId = req.params.gambarId;
-
-    if (!komikId || !chapterId || !gambarId) {
-        return res.status(400).send("ID komik, ID chapter, atau ID gambar tidak valid");
-    }
-
+const updateKomik = async (req, res) => {
     try {
-        const komik = await db.collection('komik').findOne({ _id: new ObjectId(komikId) });
+        const { id } = req.params;
+        const { judul, author, deskripsi, jenis_komik, genre, status, rating } = req.body;
+
+        const komik = await db.collection('komik').findOne({ _id: new ObjectId(id) });
 
         if (!komik) {
-            return res.status(404).send("Komik tidak ditemukan");
+            return res.status(404).json({ error: 'Komik tidak ditemukan' });
         }
 
-        const chapter = komik.chapter.find(chap => chap._id.toString() === chapterId);
+        let thumbnailURL = komik.thumbnail;
+        let thumbnailID = komik.thumbnailID;
 
-        if (!chapter) {
-            return res.status(404).send("Chapter tidak ditemukan");
+        // Update thumbnail di Google Drive jika ada file yang diupload
+        if (req.files && req.files.length > 0) {
+            try {
+                // Hapus thumbnail yang sudah ada dari Google Drive jika thumbnailID sudah tersedia
+                if (thumbnailID) {
+                    await drive.files.delete({ fileId: thumbnailID });
+                }
+
+                // Upload thumbnail baru ke Google Drive
+                const fileNameHash = crypto.createHash('md5').update(`new_thumbnail_${id}`).digest('hex');
+                const { data } = await drive.files.create({
+                    requestBody: {
+                        name: fileNameHash + '.jpg', // Ganti dengan ekstensi file yang sesuai
+                        mimeType: 'image/jpeg', // Ganti dengan tipe mime yang sesuai
+                        parents: ['1d4_5nkRy_G4x7e4trYgG46VxU1TIBUX4'],
+                    },
+                    media: {
+                        mimeType: 'image/jpeg', // Ganti dengan tipe mime yang sesuai
+                        body: bufferToStream(req.files[0].buffer),
+                    },
+                });
+
+                // Set permissions for the file (make it public)
+                thumbnailID = data.id;
+                await drive.permissions.create({
+                    fileId: thumbnailID,
+                    requestBody: {
+                        role: 'reader',
+                        type: 'anyone',
+                    },
+                });
+
+                thumbnailURL = `https://drive.google.com/uc?export=view&id=${thumbnailID}`;
+            } catch (error) {
+                console.error('Error updating thumbnail in Google Drive:', error);
+                throw error;
+            }
         }
 
-        const gambarIndex = chapter.daftarGambar.findIndex(gambar => gambar._id.toString() === gambarId);
+        // Lakukan pembaruan di MongoDB
+        const updatedKomik = {
+            judul: judul || komik.judul,
+            author: author || komik.author,
+            deskripsi: deskripsi || komik.deskripsi,
+            jenis_komik: jenis_komik || komik.jenis_komik,
+            genre: genre ? genre.split(',').map((genreItem) => genreItem.trim()) : komik.genre,
+            status: status || komik.status,
+            rating: rating || komik.rating,
+            thumbnail: thumbnailURL,
+            thumbnailID: thumbnailID,
+        };
 
-        if (gambarIndex === -1) {
-            return res.status(404).send("Gambar tidak ditemukan");
+        const result = await db.collection('komik').updateOne({ _id: new ObjectId(id) }, { $set: updatedKomik });
+
+        if (result.modifiedCount === 1) {
+            return res.json({ message: 'Komik berhasil diperbarui' });
+        } else {
+            return res.status(500).json({ error: 'Terjadi kesalahan saat memperbarui komik' });
         }
-
-        const { nomorGambar } = req.body;
-
-        if (!nomorGambar) {
-            return res.status(400).send("Data gambar tidak lengkap");
-        }
-
-        // Perbarui nomorGambar
-        chapter.daftarGambar[gambarIndex].nomorGambar = nomorGambar;
-
-        const result = await db.collection('komik').updateOne(
-            { _id: new ObjectId(komikId), 'chapter._id': new ObjectId(chapterId) },
-            { $set: { 'chapter.$.daftarGambar': chapter.daftarGambar } }
-        );
-
-        if (result.modifiedCount === 0) {
-            return res.status(404).send("Chapter atau gambar tidak ditemukan saat memperbarui gambar");
-        }
-
-        res.send("Gambar berhasil diperbarui");
     } catch (error) {
-        console.error("Error updating gambar:", error);
-        res.status(500).send("Gagal memperbarui gambar");
+        console.error('Error saat memperbarui komik:', error);
+        res.status(500).json({ error: 'Terjadi kesalahan saat memperbarui komik' });
     }
 };
 
-const getChapterByNumber = async (req, res) => {
-    const komikId = req.params.id;
-    const nomorChapter = req.params.nomorChapter;
-
-    if (!komikId || !nomorChapter) {
-        return res.status(400).send("ID komik atau nomorChapter tidak valid");
-    }
-
+const getKomikByID = async (req, res) => {
     try {
-        const komik = await db.collection('komik').findOne({ _id: new ObjectId(komikId) });
+        const { id } = req.params;
+        const komik = await db.collection('komik').findOne({ _id: new ObjectId(id) });
 
         if (!komik) {
-            return res.status(404).send("Komik tidak ditemukan");
+            return res.status(404).json({ error: 'Komik tidak ditemukan' });
         }
 
-        const chapter = komik.chapter.find(chap => chap.nomorChapter === nomorChapter);
+        // Membuat objek respons tanpa menampilkan ID MongoDB
+        const komikResponse = {
+            judul: komik.judul,
+            author: komik.author,
+            deskripsi: komik.deskripsi,
+            jenis_komik: komik.jenis_komik,
+            genre: komik.genre,
+            status: komik.status,
+            uploader: komik.uploader,
+            rating: komik.rating,
+            chapter: komik.chapter,
+            thumbnail: komik.thumbnail,
+            created_at: komik.created_at,
+            // Tambahan informasi lain yang mungkin Anda ingin sertakan
+        };
 
-        if (!chapter) {
-            return res.status(404).send("Chapter tidak ditemukan");
-        }
-
-        res.send(chapter);
+        res.json(komikResponse);
     } catch (error) {
-        console.error("Error fetching chapter by nomorChapter:", error);
-        res.status(500).send("Gagal mengambil chapter");
+        console.error('Error saat mengambil komik berdasarkan ID:', error);
+        res.status(500).json({ error: 'Terjadi kesalahan saat mengambil komik' });
     }
 };
 
-module.exports = { getAllKomik, addKomik, deleteKomik, getKomikById, updateKomik, 
-                 addChapter, getChapterById, deleteChapter, addGambar, deleteGambar, 
-                 updateGambar, getChapterByNumber};
+module.exports = { getAllKomik, addKomik, deleteKomik, updateKomik, getKomikByID };
