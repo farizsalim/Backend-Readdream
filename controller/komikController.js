@@ -106,7 +106,7 @@ const addKomik = async (req, res) => {
             // Update the MongoDB entry with the public link
             await db.collection('komik').updateOne(
                 { _id: result.insertedId },
-                { $set: { thumbnail: `https://drive.google.com/uc?export=view&id=${data.id}`,
+                { $set: { thumbnail: `https://drive.google.com/thumbnail?${data.id}&sz=w1000`,
                           thumbnailID:  data.id} }
             );
 

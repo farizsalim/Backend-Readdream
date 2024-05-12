@@ -83,6 +83,8 @@ const addGambar = async (req, res) => {
         return res.status(400).send("ID komik atau ID chapter tidak valid");
     }
 
+    const { nomorGambar } = req.body;
+
     try {
         const komik = await db.collection('komik').findOne({ _id: new ObjectId(komikId) });
 
@@ -137,8 +139,8 @@ const addGambar = async (req, res) => {
                 const gambarObj = {
                     _id: new ObjectId(),
                     idGambar: googleDriveId,
-                    nomorGambar: chapter.daftarGambar.length + 1,
-                    gambar: `https://drive.google.com/uc?export=view&id=${googleDriveId}`,
+                    nomorGambar: nomorGambar,
+                    gambar: `https://drive.google.com/thumbnail?id=${googleDriveId}&sz=w1000`,
                 };
 
                 chapter.daftarGambar.push(gambarObj);
